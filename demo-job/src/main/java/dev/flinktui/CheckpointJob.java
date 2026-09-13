@@ -7,6 +7,9 @@ import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.configuration.CheckpointingOptions;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -15,8 +18,10 @@ import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.streaming.api.watermark.Watermark;
+import org.apache.flink.runtime.state.CheckpointStorageFactory;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.runtime.state.storage.JobManagerCheckpointStorage;
 
 /**
  * A small, deterministic job used to exercise checkpoint diagnostics in the TUI.
@@ -33,15 +38,24 @@ public final class CheckpointJob {
     private CheckpointJob() {}
 
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        boolean failCheckpoints = args.length > 0 && "--fail-checkpoints".equals(args[0]);
+        Configuration configuration = new Configuration();
+        if (failCheckpoints) {
+            configuration.set(CheckpointingOptions.CHECKPOINT_STORAGE, LimitedCheckpointStorage.class.getName());
+        }
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(configuration);
         env.setParallelism(PARALLELISM);
         env.disableOperatorChaining();
-        env.enableCheckpointing(3_000, CheckpointingMode.EXACTLY_ONCE);
+        env.enableCheckpointing(failCheckpoints ? 3_600_000 : 3_000, CheckpointingMode.EXACTLY_ONCE);
 
         CheckpointConfig checkpoints = env.getCheckpointConfig();
         checkpoints.setMinPauseBetweenCheckpoints(1_000);
         checkpoints.setCheckpointTimeout(20_000);
         checkpoints.setMaxConcurrentCheckpoints(1);
+        if (failCheckpoints) {
+            // Let E2E trigger each failure explicitly and keep the fixture running afterward.
+            checkpoints.setTolerableCheckpointFailureNumber(Integer.MAX_VALUE);
+        }
 
         DataStream<String> events = env
                 .addSource(new CheckpointedTransactionSource())
@@ -74,7 +88,16 @@ public final class CheckpointJob {
                 .uid("checkpoint-sink")
                 .setParallelism(PARALLELISM);
 
-        env.execute(JOB_NAME);
+        env.execute(failCheckpoints ? "Flink TUI Checkpoint Failure Lab" : JOB_NAME);
+    }
+
+    /** Loaded by Flink from the E2E fixture's checkpoint storage configuration. */
+    public static final class LimitedCheckpointStorage implements CheckpointStorageFactory<JobManagerCheckpointStorage> {
+        @Override
+        public JobManagerCheckpointStorage createFromConfig(ReadableConfig configuration, ClassLoader classLoader) {
+            // Even the source's sequence state exceeds this one-byte storage limit.
+            return new JobManagerCheckpointStorage(1);
+        }
     }
 
     private static String accountKey(String event) {
