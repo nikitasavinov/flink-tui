@@ -1,0 +1,38 @@
+name: Flink TUI E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Flink ${{ matrix.flink }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        flink: ['1.20.5', '2.3.0']
+    env:
+      FLINK_VERSION: ${{ matrix.flink }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cluster compatibility and navigation journeys
+        run: make test-e2e
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flink-tui-e2e-${{ matrix.flink }}-failure
+          path: target/e2e
+          if-no-files-found: ignore
+          retention-days: 7

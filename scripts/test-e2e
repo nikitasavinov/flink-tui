@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_dir"
+
+go_bin="${GO:-go}"
+if ! command -v "$go_bin" >/dev/null 2>&1; then
+  if [[ -x /usr/local/go/bin/go ]]; then
+    go_bin=/usr/local/go/bin/go
+  else
+    echo "test-e2e: Go was not found" >&2
+    exit 2
+  fi
+fi
+
+export FLINK_VERSION="${FLINK_VERSION:-2.3.0}"
+compose_project="${FLINK_TUI_E2E_PROJECT:-flink-tui-e2e-${FLINK_VERSION//./-}}"
+rest_port="${FLINK_TUI_E2E_REST_PORT:-18081}"
+sql_port="${FLINK_TUI_E2E_SQL_PORT:-18083}"
+artifact_dir="${FLINK_TUI_E2E_ARTIFACTS:-$repo_dir/target/e2e/$FLINK_VERSION}"
+keep_cluster="${FLINK_TUI_E2E_KEEP_CLUSTER:-0}"
+
+mkdir -p "$artifact_dir"
+artifact_dir="$(cd "$artifact_dir" && pwd)"
+export FLINK_TUI_REST_PORT="$rest_port"
+export FLINK_TUI_SQL_PORT="$sql_port"
+export FLINK_TUI_E2E_ENDPOINT="http://127.0.0.1:$rest_port"
+export FLINK_TUI_E2E_SQL_ENDPOINT="http://127.0.0.1:$sql_port"
+export FLINK_TUI_E2E_ARTIFACTS="$artifact_dir"
+export FLINK_TUI_E2E_EXCEPTION_JOB="Flink TUI Exception Lab"
+export FLINK_TUI_EXPECT_VERSION="$FLINK_VERSION"
+export FLINK_TUI_INTEGRATION_ENDPOINT="$FLINK_TUI_E2E_ENDPOINT"
+
+compose() {
+  docker compose --profile e2e -p "$compose_project" "$@"
+}
+
+started=0
+finish() {
+  status=$?
+  trap - EXIT INT TERM
+
+  if [[ $started -eq 1 && $status -ne 0 ]]; then
+    compose ps -a >"$artifact_dir/compose-status.txt" 2>&1 || true
+    compose logs --no-color >"$artifact_dir/compose.log" 2>&1 || true
+    echo "test-e2e: failure artifacts saved under $artifact_dir" >&2
+  fi
+
+  if [[ $started -eq 1 && "$keep_cluster" != "1" ]]; then
+    compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+  elif [[ $started -eq 1 ]]; then
+    echo "test-e2e: cluster retained as Compose project $compose_project" >&2
+  fi
+
+  exit "$status"
+}
+trap finish EXIT INT TERM
+
+# Use a dedicated Compose project and non-development ports. This makes the
+# suite hermetic without disturbing a playground already running on 8081/8083.
+compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+# Compose can fail after starting some services. Capture diagnostics and clean
+# those services up even when startup never reaches the test command.
+started=1
+compose up --build -d
+
+"$go_bin" test ./internal/flink ./internal/ui/coordinator -run '^TestE2E' -count=1 -v -timeout=8m
+# The navigation journeys above wait for the topology fixture to be running.
+"$go_bin" test ./internal/ui/coordinator -run '^TestTopologyLabRenderingIntegration$' -count=1 -v -timeout=1m

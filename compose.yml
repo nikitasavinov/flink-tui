@@ -1,0 +1,164 @@
+x-demo-build: &demo-build
+  context: demo-job
+  args:
+    FLINK_VERSION: ${FLINK_VERSION:-2.3.0}
+    FLINK_IMAGE: flink:${FLINK_VERSION:-2.3.0}-java17
+
+services:
+  jobmanager:
+    image: flink:${FLINK_VERSION:-2.3.0}-java17
+    command: jobmanager
+    ports:
+      - "127.0.0.1:${FLINK_TUI_REST_PORT:-8081}:8081"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        rest.bind-address: 0.0.0.0
+        parallelism.default: 2
+        metrics.fetcher.update-interval: 3 s
+        rest.flamegraph.enabled: true
+        rest.profiling.enabled: true
+        execution.checkpointing.savepoint-dir: file:///flink-data/savepoints
+    volumes:
+      - flink-data:/flink-data
+
+  taskmanager:
+    image: flink:${FLINK_VERSION:-2.3.0}-java17
+    command: taskmanager
+    depends_on:
+      - jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 16
+        parallelism.default: 2
+        rest.flamegraph.enabled: true
+        rest.profiling.enabled: true
+        execution.checkpointing.savepoint-dir: file:///flink-data/savepoints
+    volumes:
+      - flink-data:/flink-data
+
+  sql-gateway:
+    image: flink:${FLINK_VERSION:-2.3.0}-java17
+    depends_on:
+      - jobmanager
+      - taskmanager
+    ports:
+      - "127.0.0.1:${FLINK_TUI_SQL_PORT:-8083}:8083"
+    command:
+      - /opt/flink/bin/sql-gateway.sh
+      - start-foreground
+      - -Dsql-gateway.endpoint.rest.address=0.0.0.0
+      - -Dsql-gateway.endpoint.rest.bind-address=0.0.0.0
+      - -Dexecution.target=remote
+      - -Drest.address=jobmanager
+      - -Drest.port=8081
+
+  demo-job:
+    image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
+    build: *demo-build
+    depends_on:
+      - jobmanager
+      - taskmanager
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until flink list -m jobmanager:8081 >/tmp/flink-list.txt 2>/dev/null; do
+          sleep 1
+        done
+        if grep -q "Flink TUI Demo" /tmp/flink-list.txt; then
+          echo "Flink TUI Demo is already running"
+          exit 0
+        fi
+        flink run -d -m jobmanager:8081 \
+          -c dev.flinktui.DemoJob \
+          /opt/flink/usrlib/flink-tui-demo.jar
+
+  checkpoint-job:
+    image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
+    build: *demo-build
+    depends_on:
+      - jobmanager
+      - taskmanager
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until flink list -m jobmanager:8081 >/tmp/flink-list.txt 2>/dev/null; do
+          sleep 1
+        done
+        if grep -q "Flink TUI Checkpoints" /tmp/flink-list.txt; then
+          echo "Flink TUI Checkpoints is already running"
+          exit 0
+        fi
+        flink run -d -m jobmanager:8081 \
+          -c dev.flinktui.CheckpointJob \
+          /opt/flink/usrlib/flink-tui-demo.jar
+
+  topology-job:
+    image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
+    build: *demo-build
+    depends_on:
+      - jobmanager
+      - taskmanager
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until flink list -m jobmanager:8081 >/tmp/flink-list.txt 2>/dev/null; do
+          sleep 1
+        done
+        if grep -q "Flink TUI Topology Lab" /tmp/flink-list.txt; then
+          echo "Flink TUI Topology Lab is already running"
+          exit 0
+        fi
+        flink run -d -m jobmanager:8081 \
+          -c dev.flinktui.TopologyLabJob \
+          /opt/flink/usrlib/flink-tui-demo.jar
+
+  flamegraph-job:
+    image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
+    build: *demo-build
+    depends_on:
+      - jobmanager
+      - taskmanager
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until flink list -m jobmanager:8081 >/tmp/flink-list.txt 2>/dev/null; do
+          sleep 1
+        done
+        if grep -q "Flink TUI Flame Lab" /tmp/flink-list.txt; then
+          echo "Flink TUI Flame Lab is already running"
+          exit 0
+        fi
+        flink run -d -m jobmanager:8081 \
+          -c dev.flinktui.FlameGraphJob \
+          /opt/flink/usrlib/flink-tui-demo.jar
+
+  exception-job:
+    profiles: [e2e]
+    image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
+    build: *demo-build
+    depends_on:
+      - jobmanager
+      - taskmanager
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until flink list -m jobmanager:8081 >/tmp/flink-list.txt 2>/dev/null; do
+          sleep 1
+        done
+        if grep -q "Flink TUI Exception Lab" /tmp/flink-list.txt; then
+          echo "Flink TUI Exception Lab is already running"
+          exit 0
+        fi
+        flink run -d -m jobmanager:8081 \
+          -c dev.flinktui.ExceptionJob \
+          /opt/flink/usrlib/flink-tui-demo.jar
+
+volumes:
+  flink-data:
