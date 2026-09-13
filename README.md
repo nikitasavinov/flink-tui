@@ -49,8 +49,15 @@ processes behind it.
 Install with **Go 1.25 or newer**:
 
 ```sh
-go install github.com/nikitasavinov/flink-tui/cmd/flink-tui@latest
+go install github.com/nikitasavinov/flink-tui/cmd/flink-tui@0.1.0
 flink-tui --endpoint http://localhost:8081 --sql-endpoint ''
+```
+
+`go install` places the binary in `$(go env GOPATH)/bin`. If your shell reports
+`command not found`, add that directory to your `PATH`:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
 Or build from a checkout:
