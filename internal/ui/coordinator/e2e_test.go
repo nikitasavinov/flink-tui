@@ -327,6 +327,55 @@ func (d *e2eDriver) record(format string, values ...any) {
 	d.trace = append(d.trace, fmt.Sprintf("%02d  %s", len(d.trace)+1, fmt.Sprintf(format, values...)))
 }
 
+func TestE2ECheckpointFailuresAgainstFlink(t *testing.T) {
+	endpoint := os.Getenv("FLINK_TUI_E2E_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("set FLINK_TUI_E2E_ENDPOINT or run make test-e2e")
+	}
+	driver := newE2EDriver(t, endpoint, "")
+	driver.waitForPlayground()
+	const jobName = "Flink TUI Checkpoint Failure Lab"
+	driver.eventually("running checkpoint failure fixture", time.Minute, func() bool {
+		driver.runCommand(driver.model.fetchJobs(), 0)
+		for _, job := range driver.model.jobList.State().Jobs {
+			if job.Name == jobName && job.State == "RUNNING" && job.RunningTasks > 0 && job.RunningTasks == job.TotalTasks {
+				return true
+			}
+		}
+		return false
+	})
+	driver.clickJob(jobName)
+	driver.clickSidebar("Job Actions")
+	for _, action := range []string{"Trigger configured checkpoint", "Trigger full checkpoint"} {
+		driver.clickContent(action)
+		driver.send("review "+action, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if !driver.model.jobOperations.State().ActionConfirm {
+			t.Fatalf("%s did not request confirmation", action)
+		}
+		driver.send("confirm "+action, tea.KeyPressMsg(tea.Key{Code: 'y'}))
+		if state := driver.model.jobOperations.State(); state.ActionTriggerID == "" {
+			t.Fatalf("%s was not accepted by Flink: %v", action, state.ActionErr)
+		}
+		driver.eventually(action+" completion", 45*time.Second, func() bool {
+			driver.runCommand(driver.model.fetchActionOperationIfNeeded(), 0)
+			state := driver.model.jobOperations.State()
+			if state.ActionErr != nil && state.ActionStatus != "COMPLETED" {
+				t.Fatalf("%s polling failed: %v", action, state.ActionErr)
+			}
+			return state.ActionStatus == "COMPLETED"
+		})
+		state := driver.model.jobOperations.State()
+		if state.ActionErr == nil || state.ActionMessage != "" {
+			t.Fatalf("%s failure was not surfaced: error=%v message=%q", action, state.ActionErr, state.ActionMessage)
+		}
+		driver.expectVisible("Action failed:")
+		if strings.Contains(driver.screen(), "Operation completed successfully.") {
+			t.Fatalf("%s failure was rendered as success", action)
+		}
+		t.Logf("%s: %v", action, state.ActionErr)
+	}
+}
+
 func TestE2EMouseNavigationAgainstFlink(t *testing.T) {
 	endpoint := os.Getenv("FLINK_TUI_E2E_ENDPOINT")
 	if endpoint == "" {

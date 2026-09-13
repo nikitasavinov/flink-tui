@@ -136,8 +136,9 @@ func (c *Client) asyncOperation(ctx context.Context, path string) (AsyncOperatio
 			ID string `json:"id"`
 		} `json:"status"`
 		Operation struct {
-			Location string          `json:"location"`
-			Failure  json.RawMessage `json:"failure-cause"`
+			Location          string          `json:"location"`
+			SavepointFailure  json.RawMessage `json:"failure-cause"`
+			CheckpointFailure json.RawMessage `json:"failureCause"`
 		} `json:"operation"`
 	}
 	if err := c.get(ctx, path, &response); err != nil {
@@ -146,7 +147,7 @@ func (c *Client) asyncOperation(ctx context.Context, path string) (AsyncOperatio
 	return AsyncOperation{
 		Status:   response.Status.ID,
 		Location: response.Operation.Location,
-		Failure:  displayFailure(response.Operation.Failure),
+		Failure:  cmp.Or(displayFailure(response.Operation.SavepointFailure), displayFailure(response.Operation.CheckpointFailure)),
 	}, nil
 }
 

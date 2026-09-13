@@ -96,6 +96,28 @@ services:
           -c dev.flinktui.CheckpointJob \
           /opt/flink/usrlib/flink-tui-demo.jar
 
+  checkpoint-failure-job:
+    profiles: [e2e]
+    image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
+    build: *demo-build
+    depends_on:
+      - jobmanager
+      - taskmanager
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until flink list -m jobmanager:8081 >/tmp/flink-list.txt 2>/dev/null; do
+          sleep 1
+        done
+        if grep -q "Flink TUI Checkpoint Failure Lab" /tmp/flink-list.txt; then
+          echo "Flink TUI Checkpoint Failure Lab is already running"
+          exit 0
+        fi
+        flink run -d -m jobmanager:8081 \
+          -c dev.flinktui.CheckpointJob \
+          /opt/flink/usrlib/flink-tui-demo.jar --fail-checkpoints
+
   topology-job:
     image: flink-tui-demo-job:${FLINK_VERSION:-2.3.0}
     build: *demo-build

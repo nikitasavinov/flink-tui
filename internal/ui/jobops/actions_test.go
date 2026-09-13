@@ -3,6 +3,9 @@ package jobops
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -116,6 +119,62 @@ func TestOperationPollWaitsForReplyAndRetriesFailures(t *testing.T) {
 	model.Apply(actionStatusMsg{jobID: "job", generation: 1, triggerID: "trigger", operation: flink.AsyncOperation{Status: "COMPLETED"}})
 	if command := model.Poll(); command != nil {
 		t.Fatal("completed operation kept polling")
+	}
+}
+
+func TestOperationPollReportsFlinkFailures(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		kind         actionKind
+		endpoint     string
+		failureField string
+		failed       bool
+	}{
+		{name: "configured checkpoint failure", kind: actionConfiguredCheckpoint, endpoint: "checkpoints", failureField: "failureCause", failed: true},
+		{name: "full checkpoint failure", kind: actionFullCheckpoint, endpoint: "checkpoints", failureField: "failureCause", failed: true},
+		{name: "savepoint failure", kind: actionSavepoint, endpoint: "savepoints", failureField: "failure-cause", failed: true},
+		{name: "stop with savepoint failure", kind: actionStopSavepoint, endpoint: "savepoints", failureField: "failure-cause", failed: true},
+		{name: "stop and drain failure", kind: actionStopDrain, endpoint: "savepoints", failureField: "failure-cause", failed: true},
+		{name: "checkpoint success", kind: actionConfiguredCheckpoint, endpoint: "checkpoints", failureField: "failureCause"},
+		{name: "savepoint success", kind: actionSavepoint, endpoint: "savepoints", failureField: "failure-cause"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failure := "null"
+			if test.failed {
+				failure = `{"class":"java.io.IOException","stack-trace":"java.io.IOException: storage unavailable\nstack trace"}`
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodGet || request.URL.Path != "/jobs/job/"+test.endpoint+"/trigger" {
+					t.Errorf("unexpected request: %s %s", request.Method, request.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"status":{"id":"COMPLETED"},"operation":{%q:%s}}`, test.failureField, failure)
+			}))
+			defer server.Close()
+			client, err := flink.NewClient(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := Model{
+				client: client, view: ViewActions, context: Context{JobID: "job"},
+				actionKind: test.kind, actionTriggerID: "trigger", actionStatus: "IN_PROGRESS",
+				actionMessage: "Operation accepted; polling Flink for completion.",
+			}
+			model.Apply(model.Poll()().(Message))
+			if test.failed {
+				if model.actionErr == nil || model.actionErr.Error() != "java.io.IOException: storage unavailable" || model.actionMessage != "" {
+					t.Fatalf("failed operation: error=%v message=%q", model.actionErr, model.actionMessage)
+				}
+				if rendered := ansi.Strip(model.Render(120, 20)); !strings.Contains(rendered, "Action failed:") || strings.Contains(rendered, "Operation completed successfully.") {
+					t.Fatalf("failed operation rendered incorrectly:\n%s", rendered)
+				}
+			} else if model.actionErr != nil || model.actionMessage != "Operation completed successfully." {
+				t.Fatalf("successful operation: error=%v message=%q", model.actionErr, model.actionMessage)
+			}
+			if model.actionStatus != "COMPLETED" || model.Poll() != nil {
+				t.Fatal("completed operation kept polling")
+			}
+		})
 	}
 }
 
