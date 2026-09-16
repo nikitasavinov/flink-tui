@@ -46,10 +46,17 @@ processes behind it.
 
 ## Get started
 
-Install with **Go 1.25 or newer**:
+Download a binary archive and `checksums.txt` from
+[GitHub Releases](https://github.com/nikitasavinov/flink-tui/releases).
+Choose `darwin` for macOS or `linux` for Linux, and `arm64` for Apple Silicon
+or ARM64, or `amd64` for Intel/AMD 64-bit processors. Verify the archive's
+SHA-256 against `checksums.txt`, extract it, and put `flink-tui` in a directory
+on your `PATH`. These binaries do not require Go.
+
+Or install with **Go 1.25 or newer**:
 
 ```sh
-go install github.com/nikitasavinov/flink-tui/cmd/flink-tui@0.1.0
+go install github.com/nikitasavinov/flink-tui/cmd/flink-tui@v0.1.0
 flink-tui --endpoint http://localhost:8081 --sql-endpoint ''
 ```
 
