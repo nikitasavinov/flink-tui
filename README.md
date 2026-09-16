@@ -56,7 +56,7 @@ on your `PATH`. These binaries do not require Go.
 Or install with **Go 1.25 or newer**:
 
 ```sh
-go install github.com/nikitasavinov/flink-tui/cmd/flink-tui@v0.1.0
+go install github.com/nikitasavinov/flink-tui/cmd/flink-tui@v0.1.1
 flink-tui --endpoint http://localhost:8081 --sql-endpoint ''
 ```
 
