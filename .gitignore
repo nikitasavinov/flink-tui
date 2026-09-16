@@ -6,6 +6,7 @@
 
 # Go
 /bin/
+/dist/
 /flink-tui
 
 # Java

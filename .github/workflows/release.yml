@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Tests with race detector
+        run: make test-race
+      - name: Publish release
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.1
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Update README version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          readme = Path("README.md")
+          updated, count = re.subn(
+              r"(?m)^(go install github\.com/nikitasavinov/flink-tui/cmd/flink-tui@)\S+$",
+              lambda match: match[1] + os.environ["GITHUB_REF_NAME"],
+              readme.read_text(),
+          )
+          assert count == 1, f"Expected one install command in README.md, found {count}"
+          readme.write_text(updated)
+          PY
+          if git diff --quiet -- README.md; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m "docs: update install version to ${GITHUB_REF_NAME}"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
