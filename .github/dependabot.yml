@@ -1,11 +1,37 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot version updates. Options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
 updates:
-  - package-ecosystem: "" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "gomod"
+    directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Demo job used by compose.yml. Flink artifacts must match the Flink image
+  # version in compose.yml and demo-job/Dockerfile, so bump them manually.
+  - package-ecosystem: "maven"
+    directory: "/demo-job"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "org.apache.flink:*"
+    groups:
+      demo-job-maven:
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directory: "/demo-job"
+    schedule:
+      interval: "monthly"
