@@ -1,6 +1,6 @@
 ARG FLINK_VERSION=2.3.0
 ARG FLINK_IMAGE=flink:${FLINK_VERSION}-java17
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3-eclipse-temurin-24 AS build
 
 ARG FLINK_VERSION
 WORKDIR /build
